@@ -7,7 +7,7 @@ import argparse
 try:
     from PIL import Image
 except ImportError:
-    sys.stderr.write("Pillow module must be installed\n")
+    print("Pillow module must be installed", file=sys.stderr)
     raise
 
 
@@ -26,10 +26,29 @@ LIGHT = 0b10000
 NO_EOL_MASK = 0b100000
 
 
-def decode_newlines(encoded_piet):
+def encode_newlines(ascii_piet):
+    "Encode newlines into the end-of-line bit of the previous char."
+    ascii_lines = ascii_piet.splitlines()
+    encoded_lines = []
+    for line in ascii_lines:
+        if line:
+            # Turn the codel at the end of each line into its EOL
+            # equivalent
+            last_charcode = ord(line[-1])
+            last_charcode &= ~NO_EOL_MASK
+            # If the mask took the charcode out of printable range,
+            # shift it back into printable range
+            if last_charcode < 32:
+                last_charcode += 64
+            encoded_char = chr(last_charcode)
+            encoded_lines.append(line[:-1] + encoded_char)
+    return "".join(encoded_lines)
+
+
+def decode_newlines(ascii_piet):
     "Decode the end-of-line bit into actual newlines."
     piet_with_newlines = ""
-    for char in encoded_piet:
+    for char in ascii_piet:
         if char == "\n":
             # There shouldn't be any newlines in the encoded version
             # before this function adds them
@@ -47,15 +66,31 @@ def decode_newlines(encoded_piet):
     return piet_with_newlines.rstrip("\n")
 
 
-def ascii_to_image(encoded_piet, codel_size):
+def ascii_to_image(ascii_piet, codel_size, verbose=False):
     "Convert ASCII-encoded Piet into a PIL Image object."
-    encoded_lines = decode_newlines(encoded_piet).splitlines()
-    image_width = max(len(line) for line in encoded_lines)
-    image_height = len(encoded_lines)
+    # Make sure any literal newlines in the input are encoded into the
+    # EOL bits
+    ascii_piet = encode_newlines(ascii_piet)
+    if verbose:
+        print_stderr("ASCII-encoded Piet is", len(ascii_piet), "bytes:")
+        print_stderr(ascii_piet)
+        print_stderr()
+    # Then turn them back into literal newlines
+    ascii_piet = decode_newlines(ascii_piet)
+    if verbose:
+        print_stderr("With newlines added:")
+        print_stderr(ascii_piet)
+        print_stderr()
+    ascii_lines = ascii_piet.splitlines()
+    image_width = max(len(line) for line in ascii_lines)
+    image_height = len(ascii_lines)
+    if verbose:
+        print_stderr(f"Program size is {image_width} by {image_height}",
+                     f"({image_width*image_height} codels)")
     # Pad short lines with spaces (black codels)
-    encoded_lines = [line.ljust(image_width, " ") for line in encoded_lines]
+    ascii_lines = [line.ljust(image_width, " ") for line in ascii_lines]
     codels = []
-    for line in encoded_lines:
+    for line in ascii_lines:
         for char in line:
             charcode = ord(char)
             hue = charcode & HUE_MASK
@@ -79,6 +114,9 @@ def ascii_to_image(encoded_piet, codel_size):
     img = Image.new("RGB", (image_width, image_height))
     img.putdata(codels)
     # Scale the image up by a factor equal to codel_size
+    if verbose:
+        print_stderr("Generating image with codel size", codel_size)
+        print_stderr()
     real_width = image_width * codel_size
     real_height = image_height * codel_size
     img = img.resize((real_width, real_height), resample=Image.NEAREST)
@@ -119,6 +157,11 @@ def positive_int(string):
     return val
 
 
+def print_stderr(*args):
+    "Print values to stderr."
+    print(*args, file=sys.stderr)
+
+
 if __name__ == "__main__":
     argparser = argparse.ArgumentParser()
     argparser.add_argument("-s", "--size", default=1, type=positive_int,
@@ -126,6 +169,9 @@ if __name__ == "__main__":
                            metavar="CODEL_SIZE")
     argparser.add_argument("-x", "--xxd", action="store_true",
                            help="Output as xxd hexdump instead of raw bytes")
+    argparser.add_argument("-v", "--verbose", action="store_true",
+                           help="Output extra information about the Piet "
+                           "program to stderr")
     argparser.add_argument("infile", nargs="?", default=None,
                            help="Source file for ASCII-encoded input "
                            "(default: read from stdin)")
@@ -133,19 +179,32 @@ if __name__ == "__main__":
                            help="Destination file for PNG output "
                            "(default: dump to stdout)")
     options = argparser.parse_args()
+    if options.verbose:
+        print_stderr("Converting from ASCII-encoded Piet to PNG")
+        if options.infile is not None:
+            print_stderr("Source file:", options.infile)
+        else:
+            print_stderr("Source file: <stdin>")
+        if options.outfile is not None:
+            print_stderr("Destination file:", options.outfile)
+        else:
+            print_stderr("Destination file: <stdout>")
+        print_stderr()
     if options.infile is not None:
         try:
             with open(options.infile) as f:
-                encoded_piet = f.read()
+                ascii_piet = f.read()
         except:
-            print("Could not read from", options.infile, file=sys.stderr)
+            print_stderr("Could not read from", options.infile)
             raise
     else:
         # If no infile was provided, read from stdin
-        encoded_piet = sys.stdin.read()
-    img = ascii_to_image(encoded_piet, options.size)
+        ascii_piet = sys.stdin.read()
+    img = ascii_to_image(ascii_piet, options.size, verbose=options.verbose)
     if options.xxd:
         # Dump the image in xxd format to the specified output
+        if options.verbose:
+            print_stderr("Outputting PNG file as hexdump")
         bytestream = io.BytesIO()
         img.save(bytestream, "PNG")
         hexdump = xxd(bytestream.getvalue())
@@ -155,6 +214,8 @@ if __name__ == "__main__":
         else:
             print(hexdump)
     else:
+        if options.verbose:
+            print_stderr("Outputting PNG file as raw bytes")
         if options.outfile is not None:
             # Save the image as a PNG to the provided file
             img.save(options.outfile, "PNG")

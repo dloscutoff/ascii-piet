@@ -16,6 +16,8 @@ The `-s` or `--size` flag specifies the codel size: with `-s 10`, each codel wil
 
 The `-x` or `--xxd` flag outputs an xxd-style hexdump of a PNG image instead of raw bytes.
 
+The `-v` or `--verbose` flag outputs more information on the conversion process to stderr.
+
 ## Encoding specification
 
 Each of Piet's 20 colors is associated with two ASCII characters: one for when the codel appears at the end of a row, and one for all other occurrences.
