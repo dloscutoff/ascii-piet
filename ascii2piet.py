@@ -119,7 +119,7 @@ def ascii_to_image(ascii_piet, codel_size, verbose=False):
         print_stderr()
     real_width = image_width * codel_size
     real_height = image_height * codel_size
-    img = img.resize((real_width, real_height), resample=Image.NEAREST)
+    img = img.resize((real_width, real_height), resample=Image.Dither.NONE)
     return img
 
 
